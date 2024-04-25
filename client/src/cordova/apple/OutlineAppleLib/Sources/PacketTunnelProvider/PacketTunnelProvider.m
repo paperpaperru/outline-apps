@@ -34,16 +34,15 @@ NSString *const kMessageKeyPort = @"port";
 NSString *const kMessageKeyOnDemand = @"is-on-demand";
 NSString *const kDefaultPathKey = @"defaultPath";
 
-@interface PacketTunnelProvider ()<XrayMobileTunWriter>
+@interface PacketTunnelProvider ()<TunnelDarwinTunWriter>
 @property (nonatomic) NSString *hostNetworkAddress;  // IP address of the host in the active network.
-@property id<XrayMobileTunnel> tunnel;
+@property id<TunnelUpdatableUDPSupportTunnel> tunnel;
 @property (nonatomic, copy) void (^startCompletion)(NSNumber *);
 @property (nonatomic, copy) void (^stopCompletion)(NSNumber *);
 @property (nonatomic) DDFileLogger *fileLogger;
 @property(nonatomic) OutlineTunnel *tunnelConfig;
 @property(nonatomic) OutlineTunnelStore *tunnelStore;
 @property(nonatomic) dispatch_queue_t packetQueue;
-@property BOOL is_xray;
 @end
 
 @implementation PacketTunnelProvider
@@ -68,19 +67,12 @@ NSString *const kDefaultPathKey = @"defaultPath";
 
   _packetQueue = dispatch_queue_create("io.paperpaper.xray.ios.packetqueue", DISPATCH_QUEUE_SERIAL);
 
-  _is_xray = YES;
-
   return self;
 }
 
 - (void)startTunnelWithOptions:(NSDictionary *)options
              completionHandler:(void (^)(NSError *))completionHandler {
   DDLogInfo(@"Starting tunnel");
-  if ( _is_xray ) {
-    DDLogInfo(@"Starting xray");
-    XrayMobileStartXrayServer();
-    DDLogInfo(@"Xray started");
-  }
   if (options == nil) {
     DDLogWarn(@"Received a connect request from preferences");
     NSString *msg = NSLocalizedStringWithDefaultValue(
@@ -123,7 +115,7 @@ NSString *const kDefaultPathKey = @"defaultPath";
   // still be unusable, but at least the user will have a visual indication that Outline is the
   // culprit and can explicitly disconnect.
   long errorCode = noError;
-  if (!isOnDemand) {
+  if (!isOnDemand && ![self.tunnelConfig.method isEqualToString:@"aes-128-gcm"]) {
     ShadowsocksClient* client = [self getClient];
     if (client == nil) {
       return completionHandler([NSError errorWithDomain:NEVPNErrorDomain
@@ -139,8 +131,7 @@ NSString *const kDefaultPathKey = @"defaultPath";
                                              userInfo:nil]);
   }
 
-  //[self connectTunnel:[OutlineTunnel getTunnelNetworkSettingsWithTunnelRemoteAddress:self.hostNetworkAddress]
-  [self connectTunnel:[OutlineTunnel getTunnelNetworkSettingsWithTunnelRemoteAddress:@"194.87.252.99"]
+  [self connectTunnel:[OutlineTunnel getTunnelNetworkSettingsWithTunnelRemoteAddress:self.hostNetworkAddress]
            completion:^(NSError *_Nullable error) {
              if (error != nil) {
                [self execAppCallbackForAction:kActionStart errorCode:vpnPermissionNotGranted];
@@ -148,23 +139,12 @@ NSString *const kDefaultPathKey = @"defaultPath";
              }
              BOOL isUdpSupported =
                  isOnDemand ? self.tunnelStore.isUdpSupported : errorCode == noError;
-    if ( !_is_xray ) {
-      /*
              if (![self startTun2Socks:isUdpSupported]) {
                [self execAppCallbackForAction:kActionStart errorCode:vpnStartFailure];
-       */
                return completionHandler([NSError errorWithDomain:NEVPNErrorDomain
                                                             code:NEVPNErrorConnectionFailed
                                                         userInfo:nil]);
-        //     }
-    } else {
-      if (![self startTun2LocalSocks]) {
-        [self execAppCallbackForAction:kActionStart errorCode:vpnStartFailure];
-        return completionHandler([NSError errorWithDomain:NEVPNErrorDomain
-                                                     code:NEVPNErrorConnectionFailed
-                                                 userInfo:nil]);
-      }
-    }
+             }
              [self listenForNetworkChanges];
              [self.tunnelStore save:tunnelConfig];
              self.tunnelStore.isUdpSupported = isUdpSupported;
@@ -177,9 +157,11 @@ NSString *const kDefaultPathKey = @"defaultPath";
 - (void)stopTunnelWithReason:(NEProviderStopReason)reason
            completionHandler:(void (^)(void))completionHandler {
   DDLogInfo(@"Stopping tunnel");
-  DDLogInfo(@"Stopping Xray");
-  XrayMobileStopXrayServer();
-  DDLogInfo(@"Xray stopped");
+  if ([self.tunnelConfig.method isEqualToString:@"aes-128-gcm"]) {
+    DDLogInfo(@"Stopping Xray");
+    XrayMobileStopXrayServer();
+    DDLogInfo(@"Xray stopped");
+  }
   self.tunnelStore.status = TunnelStatusDisconnected;
   [self stopListeningForNetworkChanges];
   [self.tunnel disconnect];
@@ -281,7 +263,6 @@ NSString *const kDefaultPathKey = @"defaultPath";
 - (void)connectTunnel:(NEPacketTunnelNetworkSettings *)settings
            completion:(void (^)(NSError *))completionHandler {
   __weak PacketTunnelProvider *weakSelf = self;
-  DDLogInfo(@"connectTunnel %@", settings);
   [self setTunnelNetworkSettings:settings completionHandler:^(NSError * _Nullable error) {
     if (error != nil) {
       DDLogError(@"Failed to set tunnel network settings: %@", error.localizedDescription);
@@ -340,7 +321,7 @@ NSString *const kDefaultPathKey = @"defaultPath";
   if (newDefaultPath.status == NWPathStatusSatisfied) {
     DDLogInfo(@"Reconnecting tunnel.");
     // Check whether UDP support has changed with the network.
-    BOOL isUdpSupported = YES; //[self.tunnel updateUDPSupport];
+    BOOL isUdpSupported = [self.tunnel updateUDPSupport];
     DDLogDebug(@"UDP support: %d -> %d", self.tunnelStore.isUdpSupported, isUdpSupported);
     self.tunnelStore.isUdpSupported = isUdpSupported;
     [self reconnectTunnel:false];
@@ -451,16 +432,14 @@ bool getIpAddressString(const struct sockaddr *sa, char *s, socklen_t maxbytes) 
     return;
   }
   BOOL isUdpSupported = errorCode == noError;
-  /*
   if (![self startTun2Socks:isUdpSupported]) {
     DDLogError(@"Failed to reconnect tunnel. Tearing down VPN");
-   */
     [self execAppCallbackForAction:kActionStart errorCode:vpnStartFailure];
     [self cancelTunnelWithError:[NSError errorWithDomain:NEVPNErrorDomain
                                                     code:NEVPNErrorConnectionFailed
                                                 userInfo:nil]];
     return;
-  //}
+  }
   [self connectTunnel:[OutlineTunnel getTunnelNetworkSettingsWithTunnelRemoteAddress:self.hostNetworkAddress]
            completion:^(NSError *_Nullable error) {
              if (error != nil) {
@@ -498,41 +477,30 @@ bool getIpAddressString(const struct sockaddr *sa, char *s, socklen_t maxbytes) 
   }];
 }
 
-/*
 - (BOOL)startTun2Socks:(BOOL)isUdpSupported {
   BOOL isRestart = self.tunnel != nil && self.tunnel.isConnected;
   if (isRestart) {
     [self.tunnel disconnect];
   }
   __weak PacketTunnelProvider *weakSelf = self;
-  ShadowsocksClient* client = [self getClient];
-  if (client == nil) {
-    return NO;
-  }
-  NSError* err;
-  self.tunnel = Tun2socksConnectShadowsocksTunnel(
-      weakSelf, client, isUdpSupported, &err);
-  if (err != nil) {
-    DDLogError(@"Failed to start tun2socks: %@", err);
-    return NO;
-  }
-  if (!isRestart) {
-    dispatch_async(self.packetQueue, ^{
-      [weakSelf processPackets];
-    });
-  }
-  return YES;
-}
-*/
 
-- (BOOL)startTun2LocalSocks {
-  BOOL isRestart = self.tunnel != nil && self.tunnel.isConnected;
-  if (isRestart) {
-    [self.tunnel disconnect];
-  }
-  __weak PacketTunnelProvider *weakSelf = self;
   NSError* err;
-  self.tunnel = XrayMobileConnectLocalSocksTunnel(weakSelf, &err);
+  if (![self.tunnelConfig.method isEqualToString:@"aes-128-gcm"] ) {
+    ShadowsocksClient* client = [self getClient];
+    if (client == nil) {
+      return NO;
+    }
+    self.tunnel = Tun2socksConnectShadowsocksTunnel(weakSelf, client, isUdpSupported, &err);
+  } else {
+    DDLogInfo(@"Starting xray %@", [self.tunnelConfig encode]);
+    NSString* s = XrayMobileStartXrayServer(
+                                            [NSString stringWithFormat:@"%@/%@", NSHomeDirectory(), @"Documents/"],
+                                            self.tunnelConfig.host,
+                                            [self.tunnelConfig.port intValue],
+                                            self.tunnelConfig.password);
+    DDLogInfo(@"Xray started %@", s);
+    self.tunnel = XrayMobileConnectLocalSocksTunnel(weakSelf, &err);
+  }
   if (err != nil) {
     DDLogError(@"Failed to start tun2socks: %@", err);
     return NO;

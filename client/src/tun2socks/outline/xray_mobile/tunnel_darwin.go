@@ -17,6 +17,7 @@ package xrayMobile
 import (
 	"errors"
 	"github.com/Jigsaw-Code/outline-apps/client/src/tun2socks/tunnel"
+	"github.com/Jigsaw-Code/outline-apps/client/src/tun2socks/tunnel_darwin"
 	"github.com/eycorsican/go-tun2socks/core"
 	"github.com/eycorsican/go-tun2socks/proxy/socks"
 	"io"
@@ -28,9 +29,12 @@ type Tunnel interface {
 	tunnel.Tunnel
 }
 
-// TunWriter is an interface that allows for outputting packets to the TUN (VPN).
-type TunWriter interface {
-	io.WriteCloser
+type localSocksTunnel struct {
+	tunnel.Tunnel
+}
+
+func (t *localSocksTunnel) UpdateUDPSupport() bool {
+	return true
 }
 
 func init() {
@@ -55,8 +59,8 @@ func newTunnel(tunWriter io.WriteCloser) (tunnel.Tunnel, error) {
 		return tunWriter.Write(data)
 	})
 	lwipStack := core.NewLWIPStack()
-	core.RegisterTCPConnHandler(socks.NewTCPHandler("127.0.0.1", 1080))
-	core.RegisterUDPConnHandler(socks.NewUDPHandler("127.0.0.1", 1080, 30*time.Second))
+	core.RegisterTCPConnHandler(socks.NewTCPHandler("127.0.0.1", 12080))
+	core.RegisterUDPConnHandler(socks.NewUDPHandler("127.0.0.1", 12080, 30*time.Second))
 
 	// Copy packets from tun device to lwip stack, it's the main loop.
 
@@ -66,9 +70,13 @@ func newTunnel(tunWriter io.WriteCloser) (tunnel.Tunnel, error) {
 // ConnectLocalSocksTunnel reads packets from a TUN device and routes it to a local socks proxy server.
 // Returns a Tunnel instance that should be used to input packets to the tunnel.
 
-func ConnectLocalSocksTunnel(tunWriter TunWriter) (Tunnel, error) {
+func ConnectLocalSocksTunnel(tunWriter tunnelDarwin.TunWriter) (tunnel.UpdatableUDPSupportTunnel, error) {
 	if tunWriter == nil {
 		return nil, errors.New("must provide a TunWriter")
 	}
-	return newTunnel(tunWriter)
+	t, err := newTunnel(tunWriter)
+	if err != nil {
+		return nil, err
+	}
+	return &localSocksTunnel{t}, nil
 }

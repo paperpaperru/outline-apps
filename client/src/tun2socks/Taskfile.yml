@@ -58,14 +58,14 @@ tasks:
 
   ios-only:
     desc: "Build the Tun2socks.xcframework library for iOS only"
-    internal: true
+    internal: false
     vars:
       TARGET_DIR: '{{.OUT_DIR}}/ios'
       # TARGET_IOS_VERSION must match the target version that the iOS client supports.
       TARGET_IOS_VERSION: 12.0
     cmds:
       - rm -rf "{{.TARGET_DIR}}" && mkdir -p "{{.TARGET_DIR}}"
-      - "{{.GOMOBILE_BIND_CMD}} -target=ios,iossimulator -iosversion={{.TARGET_IOS_VERSION}} -bundleid org.outline.tun2socks -o '{{.TARGET_DIR}}/Tun2socks.xcframework' '{{.TUN2SOCKS_ROOT}}/outline/tun2socks' '{{.TUN2SOCKS_ROOT}}/outline/shadowsocks' '{{.TUN2SOCKS_ROOT}}/outline/xray_mobile'"
+      - "{{.GOMOBILE_BIND_CMD}} -target=ios,iossimulator -iosversion={{.TARGET_IOS_VERSION}} -bundleid org.outline.tun2socks -o '{{.TARGET_DIR}}/Tun2socks.xcframework' '{{.TUN2SOCKS_ROOT}}/tunnel' '{{.TUN2SOCKS_ROOT}}/tunnel_darwin' '{{.TUN2SOCKS_ROOT}}/outline/tun2socks' '{{.TUN2SOCKS_ROOT}}/outline/shadowsocks' '{{.TUN2SOCKS_ROOT}}/outline/xray_mobile'"
     deps: ["gomobile"]
 
   macos-only:
@@ -80,7 +80,7 @@ tasks:
       TARGET_IOS_VERSION: 13.1
     cmds:
       - rm -rf "{{.TARGET_DIR}}" && mkdir -p "{{.TARGET_DIR}}"
-      - export MACOSX_DEPLOYMENT_TARGET={{.MACOSX_DEPLOYMENT_TARGET}}; {{.GOMOBILE_BIND_CMD}} -target=macos,maccatalyst -iosversion={{.TARGET_IOS_VERSION}} -bundleid org.outline.tun2socks -o '{{.TARGET_DIR}}/Tun2socks.xcframework' '{{.TUN2SOCKS_ROOT}}/outline/tun2socks' '{{.TUN2SOCKS_ROOT}}/outline/shadowsocks' '{{.TUN2SOCKS_ROOT}}/outline/xray_mobile'
+      - export MACOSX_DEPLOYMENT_TARGET={{.MACOSX_DEPLOYMENT_TARGET}}; {{.GOMOBILE_BIND_CMD}} -target=macos,maccatalyst -iosversion={{.TARGET_IOS_VERSION}} -bundleid org.outline.tun2socks -o '{{.TARGET_DIR}}/Tun2socks.xcframework' '{{.TUN2SOCKS_ROOT}}/tunnel' '{{.TUN2SOCKS_ROOT}}/tunnel_darwin' '{{.TUN2SOCKS_ROOT}}/outline/tun2socks' '{{.TUN2SOCKS_ROOT}}/outline/shadowsocks' '{{.TUN2SOCKS_ROOT}}/outline/xray_mobile'
     deps: ["gomobile"]
 
   apple:

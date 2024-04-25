@@ -16,17 +16,13 @@ package tun2socks
 
 import (
 	"errors"
-	"io"
+	"github.com/Jigsaw-Code/outline-apps/client/src/tun2socks/tunnel"
+	"github.com/Jigsaw-Code/outline-apps/client/src/tun2socks/tunnel_darwin"
 	"runtime/debug"
 	"time"
 
 	"github.com/Jigsaw-Code/outline-apps/client/src/tun2socks/outline/shadowsocks"
 )
-
-// TunWriter is an interface that allows for outputting packets to the TUN (VPN).
-type TunWriter interface {
-	io.WriteCloser
-}
 
 func init() {
 	// Apple VPN extensions have a memory limit of 15MB. Conserve memory by increasing garbage
@@ -50,7 +46,7 @@ func init() {
 // `isUDPEnabled` indicates whether the tunnel and/or network enable UDP proxying.
 //
 // Sets an error if the tunnel fails to connect.
-func ConnectShadowsocksTunnel(tunWriter TunWriter, client *shadowsocks.Client, isUDPEnabled bool) (Tunnel, error) {
+func ConnectShadowsocksTunnel(tunWriter tunnelDarwin.TunWriter, client *shadowsocks.Client, isUDPEnabled bool) (tunnel.UpdatableUDPSupportTunnel, error) {
 	if tunWriter == nil {
 		return nil, errors.New("must provide a TunWriter")
 	} else if client == nil {
