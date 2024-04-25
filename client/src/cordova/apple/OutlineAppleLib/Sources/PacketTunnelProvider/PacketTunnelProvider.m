@@ -159,8 +159,8 @@ NSString *const kDefaultPathKey = @"defaultPath";
   DDLogInfo(@"Stopping tunnel");
   if ([self.tunnelConfig.method isEqualToString:@"aes-128-gcm"]) {
     DDLogInfo(@"Stopping Xray");
-    XrayMobileStopXrayServer();
-    DDLogInfo(@"Xray stopped");
+    NSString* t = XrayMobileStopXrayServer();
+    DDLogInfo(@"Xray stopped %@", t);
   }
   self.tunnelStore.status = TunnelStatusDisconnected;
   [self stopListeningForNetworkChanges];
@@ -413,23 +413,25 @@ bool getIpAddressString(const struct sockaddr *sa, char *s, socklen_t maxbytes) 
 
   DDLogInfo(@"Configuration or host IP address changed with the network. Reconnecting tunnel.");
   self.hostNetworkAddress = activeHostNetworkAddress;
-  ShadowsocksClient* client = [self getClient];
-  if (client == nil) {
-    [self execAppCallbackForAction:kActionStart errorCode:illegalServerConfiguration];
-    [self cancelTunnelWithError:[NSError errorWithDomain:NEVPNErrorDomain
-                                                    code:NEVPNErrorConfigurationInvalid
-                                                userInfo:nil]];
-    return;
-  }
   long errorCode = noError;
-  ShadowsocksCheckConnectivity(client, &errorCode, nil);
-  if (errorCode != noError && errorCode != udpRelayNotEnabled) {
-    DDLogError(@"Connectivity checks failed. Tearing down VPN");
-    [self execAppCallbackForAction:kActionStart errorCode:errorCode];
-    [self cancelTunnelWithError:[NSError errorWithDomain:NEVPNErrorDomain
-                                                    code:NEVPNErrorConnectionFailed
-                                                userInfo:nil]];
-    return;
+  if (![self.tunnelConfig.method isEqualToString:@"aes-128-gcm"]) {
+    ShadowsocksClient* client = [self getClient];
+    if (client == nil) {
+      [self execAppCallbackForAction:kActionStart errorCode:illegalServerConfiguration];
+      [self cancelTunnelWithError:[NSError errorWithDomain:NEVPNErrorDomain
+                                                      code:NEVPNErrorConfigurationInvalid
+                                                  userInfo:nil]];
+      return;
+    }
+    ShadowsocksCheckConnectivity(client, &errorCode, nil);
+    if (errorCode != noError && errorCode != udpRelayNotEnabled) {
+      DDLogError(@"Connectivity checks failed. Tearing down VPN");
+      [self execAppCallbackForAction:kActionStart errorCode:errorCode];
+      [self cancelTunnelWithError:[NSError errorWithDomain:NEVPNErrorDomain
+                                                      code:NEVPNErrorConnectionFailed
+                                                  userInfo:nil]];
+      return;
+    }
   }
   BOOL isUdpSupported = errorCode == noError;
   if (![self startTun2Socks:isUdpSupported]) {
@@ -493,6 +495,8 @@ bool getIpAddressString(const struct sockaddr *sa, char *s, socklen_t maxbytes) 
     self.tunnel = Tun2socksConnectShadowsocksTunnel(weakSelf, client, isUdpSupported, &err);
   } else {
     DDLogInfo(@"Starting xray %@", [self.tunnelConfig encode]);
+    NSString* t = XrayMobileStopXrayServer();
+    DDLogInfo(@"Stopping Xray just in case %@", t);
     NSString* s = XrayMobileStartXrayServer(
                                             [NSString stringWithFormat:@"%@/%@", NSHomeDirectory(), @"Documents/"],
                                             self.tunnelConfig.host,

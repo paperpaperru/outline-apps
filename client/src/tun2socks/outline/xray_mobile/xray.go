@@ -73,6 +73,6 @@ func StartXrayServer(configDir string, host string, port int, uuid string) strin
 	return s + geo
 }
 
-func StopXrayServer() {
-	libXray.StopXray()
+func StopXrayServer() string {
+	return libXray.StopXray()
 }
